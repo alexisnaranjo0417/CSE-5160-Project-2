@@ -1,0 +1,47 @@
+import pandas as pd
+import numpy as np
+import os
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+
+#Step 2 Load dataset
+dataset = pd.read_csv('dataset.csv')
+
+
+#Step 3 Data Exploration
+#Prints the size/dimensions of the dataset
+print('Data set size: ', dataset.shape, '\n')
+#Prints the names of the columns/attributes of the dataset
+print('Column Names: \n', dataset.columns.tolist(), '\n')
+
+
+print('\nDataset looks like: ')
+print(dataset.head())
+
+
+#Step 4 Data Cleansing
+#Clean dataset
+dataset.dropna(inplace=True)
+dataset.drop_duplicates(subset=['track_id'], keep='first', inplace=True)
+scaler = StandardScaler()
+scaled_features = scaler.fit_transform(dataset[['danceability', 'energy', 'tempo', 'liveness', 'key', 'mode', 'speechiness', 'acousticness', 'instrumentalness', 'valence', 'loudness', 'popularity']])
+
+#Step 5 Model Training
+#K-means Model
+
+# List to store silhouette scores for different K values
+silhouette_scores = []
+
+# Range of K values to test
+k_values = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Perform K-Means clustering for each K and calculate silhouette score
+for k in k_values:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
+    clusters = kmeans.fit_predict(scaled_features)
+    # Calculate silhouette score for current K
+    silhouette_avg = silhouette_score(scaled_features, clusters)
+    # Store the result
+    silhouette_scores.append(silhouette_avg)
