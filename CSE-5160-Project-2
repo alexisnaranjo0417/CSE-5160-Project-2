@@ -1,24 +1,24 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, HDBSCAN
 from sklearn.metrics import silhouette_score
-from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-#Step 2 Load dataset
+# Step 2 Load dataset
 dataset = pd.read_csv('dataset.csv')
 # Take a random sample of 5000 rows from your dataset
 sampled_dataset = dataset.sample(n=5000, random_state=42)
 
 
-#Step 3 Data Exploration
-#Prints the size/dimensions of the dataset
+# Step 3 Data Exploration
+# Prints the size/dimensions of the dataset
 print('Data set size: ', sampled_dataset.shape, '\n')
-#Prints the names of the columns/attributes of the dataset
+# Prints the names of the columns/attributes of the dataset
 print('Column Names: \n', sampled_dataset.columns.tolist(), '\n')
 
 
@@ -26,59 +26,153 @@ print('\nDataset looks like: ')
 print(sampled_dataset.head())
 
 
-#Step 4 Data Cleansing
-#Clean dataset
+# Step 4 Data Cleansing
+# Clean dataset
 sampled_dataset.dropna(inplace=True)
 sampled_dataset.drop_duplicates(subset=['track_id'], keep='first', inplace=True)
 scaler = StandardScaler()
-scaled_features = scaler.fit_transform(sampled_dataset[['danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness', 'valence', 'popularity']])
+scaled_features = scaler.fit_transform(sampled_dataset[
+                                          ['danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness',
+                                           'valence', 'popularity']])
 pca = PCA(n_components=0.9)
 x_pca = pca.fit_transform(scaled_features)
 
-#Step 5 Model Training
 
-#K-means Clustering Model
-#List to store silhouette scores for different K values
+# Step 5 Model Training
+
+
+# K-means Clustering Model
+# List to store silhouette scores for different K values
 silhouette_scores_kmeans = []
 
-#Range of K values to test
+
+# Range of K values to test
 k_values = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-#Perform K-Means clustering for each K and calculate silhouette score
+
+#Elheas Added: Determine the Optimal Number of Clusters using the Elbow Method
+inertia = []
 for k in k_values:
-    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
-    clusters = kmeans.fit_predict(x_pca)
-    # Calculate silhouette score for current K
-    silhouette_avg = silhouette_score(x_pca, clusters)
-    # Store the result
-    silhouette_scores_kmeans.append(silhouette_avg)
-    
-#Print the silhouette scores for K-Means Clustering
+   kmeans = KMeans(n_clusters = k, random_state=42, n_init = 10)
+   kmeans.fit(x_pca)
+   inertia.append(kmeans.inertia_)
+
+
+#Elheas Added: Vizualizing inertia vs number of clusters
+plt.figure(figsize=(10,5))
+plt.plot(k_values, inertia,marker = "o")
+plt.title("Elbow Method for Optimal Number of Clusters")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Inertia")
+plt.grid(True)
+plt.show()
+
+
+# Perform K-Means clustering for each K and calculate silhouette score
+for k in k_values:
+   kmeans = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
+   clusters = kmeans.fit_predict(x_pca)
+   # Calculate silhouette score for current K
+   silhouette_avg = silhouette_score(x_pca, clusters)
+   # Store the result
+   silhouette_scores_kmeans.append(silhouette_avg)
+
+
+# Print the silhouette scores for K-Means Clustering
 print("K-Means Silhouette Scores")
 silhouette_scores_dict = {k: score for k, score in zip(k_values, silhouette_scores_kmeans)}
 for k, score in silhouette_scores_dict.items():
-    print(f"K = {k}: Silhouette Score = {score:.4f}")
+   print(f"K = {k}: Silhouette Score = {score:.4f}")
 
 
-#Hierarchical Clustering Model
-#Generate 10 random data points in 2D space, between 0..10
+# Elheas Added: Plot for K-Means silhouette score
+plt.figure(figsize = (10, 5))
+plt.plot(k_values, silhouette_scores_kmeans, "bo-", markersize = 8)
+plt.title("K-Means Silhouette Scores")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Silhouette Score")
+plt.grid (True)
+plt.show()
+
+
+# Hierarchical Clustering Model
+# Generate 10 random data points in 2D space, between 0..10
 np.random.seed(42)
 points = np.random.rand(10, 2) * 10
-labels = [f'P{i+1}' for i in range(len(points))]
+labels = [f'P{i + 1}' for i in range(len(points))]
 
-#Applies Agglomerative
+
+# Applies Agglomerative
 agg_clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0, linkage='ward')
 
-#Calculate Silhouette Scores for different numbers of clusters and save the plot for Hierarchical Clustering
+
+# Calculate Silhouette Scores for different numbers of clusters and save the plot for Hierarchical Clustering
 silhouette_scores_hier = []
 n_clusters_range = range(2, 10)
 for n_clusters in n_clusters_range:
-    clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-    cluster_labels = clustering.fit_predict(x_pca)
-    silhouette_avg = silhouette_score(x_pca, cluster_labels)
-    silhouette_scores_hier.append(silhouette_avg)
+   clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+   cluster_labels = clustering.fit_predict(x_pca)
+   silhouette_avg = silhouette_score(x_pca, cluster_labels)
+   silhouette_scores_hier.append(silhouette_avg)
 
-#Print the silhouette scores for Hierarchical Clustering
+
+# Print the silhouette scores for Hierarchical Clustering
 print("\nHierarchical Silhouette Scores")
 for n_clusters, score in zip(n_clusters_range, silhouette_scores_hier):
-    print(f"Clusters: {n_clusters}:  Silhouette Score: {score:.4f}")
+   print(f"Clusters: {n_clusters}:  Silhouette Score: {score:.4f}")
+
+
+# Elheas Added: Plot for Hierarchical Silhouette Score
+plt.figure(figsize=(10, 5))
+plt.plot(n_clusters_range, silhouette_scores_hier, "rs-", markersize = 8)
+plt.title("Hierarchical Clustering Silhouette Score")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Silhouette Score")
+plt.grid(True)
+plt.show()
+
+
+
+
+#Elheas Added: Plot k = 2 which is our best k according to silhouette scores
+best_k = 2
+
+
+#Run K-Means model using k = 2 and plot scatter graph
+kmeans_final = KMeans(n_clusters = best_k, random_state=42, n_init = 10)
+final_clusters = kmeans_final.fit_predict(x_pca)
+
+
+plt.figure(figsize=(10,8))
+scatter = plt.scatter(x_pca[:, 0], x_pca[:, 1], c = final_clusters, cmap = "viridis", alpha = 0.7, s = 50)
+plt.title("Final Clusters for k = 2")
+plt.xlabel("PCA 1")
+plt.ylabel("PCA 2")
+plt.colorbar(scatter, label = "Cluster ID")
+plt.grid(True)
+plt.show()
+
+# DBSCAN Model
+# Calculate Silhouette Scores for DBSCAN Clustering
+silhouette_scores_dbscan = []
+eps_values =[0.3, 0.5, 0.7, 1.0, 1.5]
+
+
+for eps in eps_values:
+    dbscan = DBSCAN(eps=eps, min_samples=5)
+    labels = dbscan.fit_predict(x_pca)
+    mask = labels != -1
+    if len(set(labels[mask])) > 1:
+        score = silhouette_score(x_pca[mask], labels[mask])
+        silhouette_scores_dbscan.append(score)
+    else:
+        silhouette_scores_dbscan.append(np.nan)
+
+
+# Print the silhouette scores for DBSCAN Clustering
+print("\nDBSCAN Silhouette Scores")
+for eps, score in zip(eps_values, silhouette_scores_dbscan):
+    print(f"Eps: {eps}:  Silhouette Score: {score:.4f}")
+
+
+# HDBSCAN Model
