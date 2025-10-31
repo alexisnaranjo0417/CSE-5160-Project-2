@@ -176,3 +176,23 @@ for eps, score in zip(eps_values, silhouette_scores_dbscan):
 
 
 # HDBSCAN Model
+#Calculate Silhouette Scores for HDBSCAN Clustering
+silhouette_scores_hdbscan = []
+min_cluster_size =[10,20,30,40,50]
+
+
+for mcs in min_cluster_size:
+   hdbscan = HDBSCAN(min_cluster_size=mcs, min_samples=5)
+   labels = hdbscan.fit_predict(x_pca)
+   mask = labels != -1
+   if len(set(labels[mask])) > 1:
+      score = silhouette_score(x_pca[mask], labels[mask])
+      silhouette_scores_hdbscan.append(score)
+   else:
+      silhouette_scores_hdbscan.append(np.nan)
+
+
+#Print the silhouette scores for DBSCAN Clustering
+print("\nHDBSCAN Silhouette Scores")
+for eps, score in zip(min_cluster_size, silhouette_scores_hdbscan):
+    print(f"min_cluster_size: {mcs}:  Silhouette Score: {score:.4f}")
