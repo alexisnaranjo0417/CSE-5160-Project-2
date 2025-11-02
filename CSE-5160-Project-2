@@ -5,9 +5,58 @@ import os
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, HDBSCAN
-from sklearn.metrics import silhouette_score
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
+from scipy.cluster.hierarchy import dendrogram, linkage
+from sklearn.utils import resample
 
+
+def bootstrap_cosine(X, model, n_bootstraps=50):
+   bootstrap_labels = []
+
+   for _ in range(n_bootstraps):
+      X_boot = resample(X, replace=True, n_samples=len(X))
+      labels = model.fit_predict(X_boot)
+      bootstrap_labels.append(labels)
+
+   # Compute cosine similarity only for points assigned to clusters (ignore -1)
+   cosine_scores = []
+   for i in range(len(bootstrap_labels)):
+      for j in range(i+1, len(bootstrap_labels)):
+         labels_i = bootstrap_labels[i]
+         labels_j = bootstrap_labels[j]
+
+         # Only keep points assigned to clusters in BOTH bootstraps
+         mask = (labels_i != -1) & (labels_j != -1)
+         if np.sum(mask) < 2:
+               continue
+
+         # One-hot encode labels
+         unique_i = np.unique(labels_i[mask])
+         unique_j = np.unique(labels_j[mask])
+         n_i = len(unique_i)
+         n_j = len(unique_j)
+
+         one_hot_i = np.zeros((np.sum(mask), n_i))
+         one_hot_j = np.zeros((np.sum(mask), n_j))
+
+         for idx, label in enumerate(unique_i):
+               one_hot_i[:, idx] = (labels_i[mask] == label).astype(int)
+         for idx, label in enumerate(unique_j):
+               one_hot_j[:, idx] = (labels_j[mask] == label).astype(int)
+
+         # Compute cosine similarity using the smaller dimension (take average of pairwise similarities)
+         sim_matrix = cosine_similarity(one_hot_i.T, one_hot_j.T)
+         cosine_scores.append(np.mean(sim_matrix))
+
+   if len(cosine_scores) == 0:
+      return np.nan, np.nan, np.nan, []
+
+   mean_sim = np.mean(cosine_scores)
+   ci_lower = np.percentile(cosine_scores, 2.5)
+   ci_upper = np.percentile(cosine_scores, 97.5)
+
+   return mean_sim, ci_lower, ci_upper, cosine_scores
 
 # Step 2 Load dataset
 dataset = pd.read_csv('dataset.csv')
@@ -32,8 +81,8 @@ sampled_dataset.dropna(inplace=True)
 sampled_dataset.drop_duplicates(subset=['track_id'], keep='first', inplace=True)
 scaler = StandardScaler()
 scaled_features = scaler.fit_transform(sampled_dataset[
-                                          ['danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness',
-                                           'valence', 'popularity']])
+                                         ['danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness',
+                                          'valence', 'popularity']])
 pca = PCA(n_components=0.9)
 x_pca = pca.fit_transform(scaled_features)
 
@@ -44,6 +93,8 @@ x_pca = pca.fit_transform(scaled_features)
 # K-means Clustering Model
 # List to store silhouette scores for different K values
 silhouette_scores_kmeans = []
+ch_scores_kmeans = []
+db_scores_kmeans = []
 
 
 # Range of K values to test
@@ -53,9 +104,9 @@ k_values = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 #Elheas Added: Determine the Optimal Number of Clusters using the Elbow Method
 inertia = []
 for k in k_values:
-   kmeans = KMeans(n_clusters = k, random_state=42, n_init = 10)
-   kmeans.fit(x_pca)
-   inertia.append(kmeans.inertia_)
+  kmeans = KMeans(n_clusters = k, random_state=42, n_init = 10)
+  kmeans.fit(x_pca)
+  inertia.append(kmeans.inertia_)
 
 
 #Elheas Added: Vizualizing inertia vs number of clusters
@@ -70,19 +121,44 @@ plt.show()
 
 # Perform K-Means clustering for each K and calculate silhouette score
 for k in k_values:
-   kmeans = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
-   clusters = kmeans.fit_predict(x_pca)
-   # Calculate silhouette score for current K
-   silhouette_avg = silhouette_score(x_pca, clusters)
-   # Store the result
-   silhouette_scores_kmeans.append(silhouette_avg)
+  kmeans = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
+  clusters = kmeans.fit_predict(x_pca)
+  # Calculate silhouette score, calinski harabasz score, and davies bouldin score for current K
+  silhouette_avg = silhouette_score(x_pca, clusters)
+  chs = calinski_harabasz_score(x_pca, clusters)
+  dbs = davies_bouldin_score(x_pca, clusters)
+  # Store the result
+  silhouette_scores_kmeans.append(silhouette_avg)
+  ch_scores_kmeans.append(chs)
+  db_scores_kmeans.append(dbs)
 
 
 # Print the silhouette scores for K-Means Clustering
-print("K-Means Silhouette Scores")
+print("\nK-Means Silhouette Scores")
 silhouette_scores_dict = {k: score for k, score in zip(k_values, silhouette_scores_kmeans)}
 for k, score in silhouette_scores_dict.items():
-   print(f"K = {k}: Silhouette Score = {score:.4f}")
+  print(f"K = {k}: Silhouette Score = {score:.4f}")
+
+
+# KMeans Bootstrap and Cosine with 2 clusters
+kmeans_model = KMeans(n_clusters=2, random_state=42, n_init=10)
+mean_cos, ci_low, ci_up, all_cos_scores = bootstrap_cosine(x_pca, kmeans_model, n_bootstraps=50)
+
+print(f"\nBootstrap Cosine Stability for K-Means (k=2):")
+print(f"Mean Cosine Similarity: {mean_cos:.4f}")
+print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
+
+
+#Print the Calinski Harabasz Scores
+print("\nK-Means Calinski-Harabasz Score")
+for k, score in zip(k_values, ch_scores_kmeans):
+   print(f"K = {k}: Calinski-Harabasz Score = {score:.4f}")
+
+
+#Print the Davies Bouldin Scores
+print("\nK-Means Davies-Bouldin Score")
+for k, score in zip(k_values, db_scores_kmeans):
+   print(f"K = {k}: Davies-Bouldin Score = {score:.4f}")
 
 
 # Elheas Added: Plot for K-Means silhouette score
@@ -92,6 +168,26 @@ plt.title("K-Means Silhouette Scores")
 plt.xlabel("Number of Clusters")
 plt.ylabel("Silhouette Score")
 plt.grid (True)
+plt.show()
+
+
+# KMeans Calinski Harabasz Score Plot
+plt.figure(figsize = (10, 5))
+plt.plot(k_values, ch_scores_kmeans, "bo-", markersize = 8)
+plt.title("K-Means Calinski Harabasz Scores (Higher score is better)")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Calinski Harabasz Score")
+plt.grid(True)
+plt.show()
+
+
+# KMeans Davies Bouldin Score Plot
+plt.figure(figsize = (10, 5))
+plt.plot(k_values, db_scores_kmeans, "bo-", markersize = 8)
+plt.title("K-Means Davies Bouldin Scores (Lower score is better)")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Davies Bouldin Score")
+plt.grid(True)
 plt.show()
 
 
@@ -108,18 +204,47 @@ agg_clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0, 
 
 # Calculate Silhouette Scores for different numbers of clusters and save the plot for Hierarchical Clustering
 silhouette_scores_hier = []
+ch_scores_hier = []
+db_scores_hier = []
 n_clusters_range = range(2, 10)
+
 for n_clusters in n_clusters_range:
-   clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-   cluster_labels = clustering.fit_predict(x_pca)
-   silhouette_avg = silhouette_score(x_pca, cluster_labels)
-   silhouette_scores_hier.append(silhouette_avg)
+  clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+  cluster_labels = clustering.fit_predict(x_pca)
+# Calculate
+  silhouette_avg = silhouette_score(x_pca, cluster_labels)
+  chs = calinski_harabasz_score(x_pca, cluster_labels)
+  dbs = davies_bouldin_score(x_pca, cluster_labels)
+# Store
+  silhouette_scores_hier.append(silhouette_avg)
+  ch_scores_hier.append(chs)
+  db_scores_hier.append(dbs)
 
 
 # Print the silhouette scores for Hierarchical Clustering
 print("\nHierarchical Silhouette Scores")
 for n_clusters, score in zip(n_clusters_range, silhouette_scores_hier):
-   print(f"Clusters: {n_clusters}:  Silhouette Score: {score:.4f}")
+  print(f"Clusters: {n_clusters}:  Silhouette Score: {score:.4f}")
+
+
+# Hierarchical Bootstrap and Cosine with 5 clusters
+hierarchical_model = AgglomerativeClustering(n_clusters=5)
+mean_cos, ci_low, ci_up, all_cos_scores = bootstrap_cosine(x_pca, hierarchical_model, n_bootstraps=50)
+print(f"\nBootstrap Cosine Stability for Hierarchical (clusters={5}):")
+print(f"Mean Cosine Similarity: {mean_cos:.4f}")
+print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
+
+
+# Print Calinski Score for Hierarchical Clustering
+print("\nHierarchical Calinski-Harabasz Scores")
+for n_clusters, score in zip(n_clusters_range, ch_scores_hier):
+   print(f"Clusters: {n_clusters}:  Calinski-Harabasz Score: {score:.4f}")
+
+
+# Print Davies Bouldin Score for Hierarchical Clustering
+print("\nHierarchical Davies-Bouldin Scores")
+for n_clusters, score in zip(n_clusters_range, db_scores_hier):
+   print(f"Clusters: {n_clusters}:  Davies-Bouldin Score: {score:.4f}")
 
 
 # Elheas Added: Plot for Hierarchical Silhouette Score
@@ -132,6 +257,108 @@ plt.grid(True)
 plt.show()
 
 
+# Calinski Harabasz Hierarchical Plot
+plt.figure(figsize=(10, 5))
+plt.plot(n_clusters_range, ch_scores_hier, "rs-", markersize = 8)
+plt.title("Hierarchical Clustering Calinski Harabasz Score (Higher score is better)")
+plt.xlabel("Number of Clusters")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Calinski Harabasz Score")
+plt.grid(True)
+plt.show()
+
+
+# Davies Bouldin Hierarchical Plot
+plt.figure(figsize=(10, 5))
+plt.plot(n_clusters_range, db_scores_hier, "rs-", markersize = 8)
+plt.title("Hierarchical Clustering Davies Bouldin Score (Lower score is better)")
+plt.xlabel("Number of Clusters")
+plt.xlabel("Number of Clusters")
+plt.ylabel("Davies Bouldin Score")
+plt.grid(True)
+plt.show()
+
+
+# Dendrogram for Hierarchical clustering
+plt.figure(figsize=(10, 7))
+plt.title("Hierarchical Clustering Dendrogram")
+plt.xlabel("Sample data (5000 songs)")
+plt.ylabel("Distance (Ward)")
+plt.axhline( y = 80, color = 'r', linestyle = '--')
+plt.axhline( y = 95, color = 'g', linestyle = '--')
+
+
+# Linkage matrix using x_pca data
+Z = linkage(x_pca, method="ward", metric="euclidean")
+
+
+# Dendrogram Plot
+dendrogram(Z, truncate_mode='lastp'     #shows the last merged clusters
+          , p=15,
+          show_contracted=True)
+plt.show()
+
+
+# DBSCAN Model
+# Calculate Silhouette Scores for DBSCAN Clustering
+silhouette_scores_dbscan = []
+eps_values =[0.3, 0.5, 0.7, 1.0, 1.5]
+
+
+for eps in eps_values:
+   dbscan = DBSCAN(eps=eps, min_samples=5)
+   labels = dbscan.fit_predict(x_pca)
+   mask = labels != -1
+   if len(set(labels[mask])) > 1:
+       score = silhouette_score(x_pca[mask], labels[mask])
+       silhouette_scores_dbscan.append(score)
+   else:
+       silhouette_scores_dbscan.append(np.nan)
+
+
+# Print the silhouette scores for DBSCAN Clustering
+print("\nDBSCAN Silhouette Scores")
+for eps, score in zip(eps_values, silhouette_scores_dbscan):
+   print(f"Eps: {eps}:  Silhouette Score: {score:.4f}")
+
+
+# DBSCAN Bootstrap and Cosine with 1.5 eps
+dbscan_model = DBSCAN(eps=1.5, min_samples=5)
+mean_cos, ci_low, ci_up, all_cos_scores = bootstrap_cosine(x_pca, dbscan_model, n_bootstraps=50)
+print(f"\nBootstrap Cosine Stability for DBSCAN (eps=1.5):")
+print(f"Mean Cosine Similarity: {mean_cos:.4f}")
+print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
+
+
+# HDBSCAN Model
+#Calculate Silhouette Scores for HDBSCAN Clustering
+silhouette_scores_hdbscan = []
+min_cluster_size =[10,20,30,40,50]
+
+
+for mcs in min_cluster_size:
+   hdbscan = HDBSCAN(min_cluster_size=mcs, min_samples=5)
+   labels = hdbscan.fit_predict(x_pca)
+   mask = labels != -1
+   if len(set(labels[mask])) > 1:
+      score = silhouette_score(x_pca[mask], labels[mask])
+      silhouette_scores_hdbscan.append(score)
+   else:
+      silhouette_scores_hdbscan.append(np.nan)
+
+
+#Print the silhouette scores for HDBSCAN Clustering
+print("\nHDBSCAN Silhouette Scores")
+for mcs, score in zip(min_cluster_size, silhouette_scores_hdbscan):
+    print(f"min_cluster_size: {mcs}:  Silhouette Score: {score:.4f}")
+
+
+# HDBSCAN Bootstrap and Cosine with 1.5 eps
+hdbscan_model = HDBSCAN(min_cluster_size=10, min_samples=5)
+mean_cos, ci_low, ci_up, all_cos_scores = bootstrap_cosine(x_pca, hdbscan_model, n_bootstraps=50)
+print(f"\nBootstrap Cosine Stability for HDBSCAN (k=2):")
+print(f"Mean Cosine Similarity: {mean_cos:.4f}")
+print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
 
 
 #Elheas Added: Plot k = 2 which is our best k according to silhouette scores
@@ -152,47 +379,11 @@ plt.colorbar(scatter, label = "Cluster ID")
 plt.grid(True)
 plt.show()
 
-# DBSCAN Model
-# Calculate Silhouette Scores for DBSCAN Clustering
-silhouette_scores_dbscan = []
-eps_values =[0.3, 0.5, 0.7, 1.0, 1.5]
+
+#Elheas Added: Put Final clusters back into sample dataset....
+sampled_dataset["cluster"] = final_clusters
 
 
-for eps in eps_values:
-    dbscan = DBSCAN(eps=eps, min_samples=5)
-    labels = dbscan.fit_predict(x_pca)
-    mask = labels != -1
-    if len(set(labels[mask])) > 1:
-        score = silhouette_score(x_pca[mask], labels[mask])
-        silhouette_scores_dbscan.append(score)
-    else:
-        silhouette_scores_dbscan.append(np.nan)
-
-
-# Print the silhouette scores for DBSCAN Clustering
-print("\nDBSCAN Silhouette Scores")
-for eps, score in zip(eps_values, silhouette_scores_dbscan):
-    print(f"Eps: {eps}:  Silhouette Score: {score:.4f}")
-
-
-# HDBSCAN Model
-#Calculate Silhouette Scores for HDBSCAN Clustering
-silhouette_scores_hdbscan = []
-min_cluster_size =[10,20,30,40,50]
-
-
-for mcs in min_cluster_size:
-   hdbscan = HDBSCAN(min_cluster_size=mcs, min_samples=5)
-   labels = hdbscan.fit_predict(x_pca)
-   mask = labels != -1
-   if len(set(labels[mask])) > 1:
-      score = silhouette_score(x_pca[mask], labels[mask])
-      silhouette_scores_hdbscan.append(score)
-   else:
-      silhouette_scores_hdbscan.append(np.nan)
-
-
-#Print the silhouette scores for DBSCAN Clustering
-print("\nHDBSCAN Silhouette Scores")
-for eps, score in zip(min_cluster_size, silhouette_scores_hdbscan):
-    print(f"min_cluster_size: {mcs}:  Silhouette Score: {score:.4f}")
+cluster_analysis = sampled_dataset.groupby("cluster")[['danceability', 'energy', 'speechiness', 'acousticness', 'instrumentalness', 'valence', 'popularity']].mean()
+print("\nCluster Analysis Features Average")
+print(cluster_analysis)
