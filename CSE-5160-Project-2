@@ -329,6 +329,14 @@ print(f"\nBootstrap Cosine Stability for DBSCAN (eps=1.5):")
 print(f"Mean Cosine Similarity: {mean_cos:.4f}")
 print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
 
+# Plot for DBSCAN Silhouette Score
+plt.figure(figsize=(10, 5))
+plt.plot(eps_values, silhouette_scores_dbscan, "rs-", markersize = 8)
+plt.title("DBSCAN Clustering Silhouette Score")
+plt.xlabel("EPS")
+plt.ylabel("Silhouette Score")
+plt.grid(True)
+plt.show()
 
 # HDBSCAN Model
 #Calculate Silhouette Scores for HDBSCAN Clustering
@@ -356,10 +364,18 @@ for mcs, score in zip(min_cluster_size, silhouette_scores_hdbscan):
 # HDBSCAN Bootstrap and Cosine with 1.5 eps
 hdbscan_model = HDBSCAN(min_cluster_size=10, min_samples=5)
 mean_cos, ci_low, ci_up, all_cos_scores = bootstrap_cosine(x_pca, hdbscan_model, n_bootstraps=50)
-print(f"\nBootstrap Cosine Stability for HDBSCAN (k=2):")
+print(f"\nBootstrap Cosine Stability for HDBSCAN (cluster size=10):")
 print(f"Mean Cosine Similarity: {mean_cos:.4f}")
 print(f"95% Confidence Interval: [{ci_low:.4f}, {ci_up:.4f}]")
 
+# Plot for HDBSCAN Silhouette Score
+plt.figure(figsize=(10, 5))
+plt.plot(min_cluster_size, silhouette_scores_hdbscan, "rs-", markersize = 8)
+plt.title("HDBSCAN Clustering Silhouette Score")
+plt.xlabel("Cluster Size")
+plt.ylabel("Silhouette Score")
+plt.grid(True)
+plt.show()
 
 #Elheas Added: Plot k = 2 which is our best k according to silhouette scores
 best_k = 2
