@@ -1,2 +1,2 @@
-# CSE 5160 Project 2
+# Phishing Email Classification – NLP & Machine Learning Model Comparison 
 Spotify Song Recommendation with Spotify Tracks Dataset
